@@ -10,7 +10,7 @@ from ..components import Card, Segmented, StatusBadge
 from ..dialogs import confirm
 from .base import ScrollPage
 
-VERSION = "1.0.0"
+VERSION = "1.1.1"
 APPEARANCE = ["system", "light", "dark"]
 
 

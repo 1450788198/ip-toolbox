@@ -12,6 +12,18 @@ from PySide6.QtCore import QObject, QTimer, Signal
 from . import settings
 from .netbase import sort_interfaces
 
+# 采集子步骤失败只在 5 分钟内记一次日志，避免 4 秒一轮刷满 app.log
+_LOG_SEEN = {}
+
+
+def _log_once(key: str, exc: BaseException, every: float = 300.0):
+    now = time.time()
+    if now - _LOG_SEEN.get(key, 0.0) < every:
+        return
+    _LOG_SEEN[key] = now
+    from . import applog
+    applog.exception(key, exc)
+
 
 def _dhcp_running():
     try:
@@ -66,7 +78,19 @@ class NetworkState(QObject):
 
     # ---------- 对外查询 ----------
     def snapshot(self) -> dict:
-        return self._snap
+        """返回快照的浅拷贝（嵌套容器也复制一份）
+
+        避免消费方（面板/图标/导出）拿到共享可变对象后误改内部状态。
+        """
+        s = self._snap
+        return {
+            **s,
+            "ifaces": [dict(i) for i in (s.get("ifaces") or [])],
+            "detail": {k: dict(v) for k, v in (s.get("detail") or {}).items()},
+            "presets": [dict(p) for p in (s.get("presets") or [])],
+            "routes": list(s.get("routes") or []),
+            "dhcp_state": dict(s.get("dhcp_state") or {}),
+        }
 
     def ifaces(self) -> list:
         return self._snap.get("ifaces") or []
@@ -87,6 +111,13 @@ class NetworkState(QObject):
 
     def stop(self):
         self._timer.stop()
+
+    def refresh_if_older(self, seconds: float = 2.0):
+        """数据比 seconds 更旧时才补采一次（面板打开时用，不新建轮询）"""
+        if self._busy:
+            return
+        if time.time() - (self._snap.get("ts") or 0) >= seconds:
+            self.refresh()
 
     def refresh(self):
         """请求一次采集；正在采集时只置位 pending，不并发"""
@@ -134,34 +165,36 @@ class NetworkState(QObject):
             if svc and hasattr(b, "ip_mode"):
                 try:
                     d["mode"] = b.ip_mode(svc)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    _log_once(f"ip_mode {svc}", exc)
             if svc:
                 try:
                     d["dns"] = b.get_dns(svc)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    _log_once(f"get_dns {svc}", exc)
             if i.get("ipv4") and dev:
                 try:
                     d["aliases"] = b.list_alias_ips(dev)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    _log_once(f"list_alias_ips {dev}", exc)
+            # 链路速率与是否拿到 IP 无关：接口 up 就去读
+            if dev and i.get("status") == "up":
                 try:
                     d["link"] = b.link_info(dev)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    _log_once(f"link_info {dev}", exc)
             if dev:
                 try:
                     from .netinfo import ipv6_addresses
                     d["ipv6"] = ipv6_addresses(dev)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    _log_once(f"ipv6 {dev}", exc)
             detail[svc or dev] = d
         routes = []
         try:
             routes = b.list_routes() or []
-        except Exception:
-            pass
+        except Exception as exc:
+            _log_once("list_routes", exc)
         return {
             "ts": time.time(),
             "ifaces": ifaces,

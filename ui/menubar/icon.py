@@ -76,9 +76,9 @@ def _network_text(ip: str, mask: str) -> str:
     return parts[0] if parts else ip
 
 
-def _text_pix(text: str, size_pt: float = 11.5) -> QPixmap:
+def _text_pix(text: str, size_pt: float = 11.5, stale: bool = False) -> QPixmap:
+    """菜单栏文字图标：模板图标（黑色 + alpha），stale 时降透明度表明数据过期"""
     f = QFont()
-    f.setFamily("-apple-system")
     f.setPixelSize(int(size_pt * _STATUS_DPR))
     f.setWeight(QFont.DemiBold)
     fm = QFontMetrics(f)
@@ -89,7 +89,7 @@ def _text_pix(text: str, size_pt: float = 11.5) -> QPixmap:
     p = QPainter(pm)
     p.setRenderHint(QPainter.TextAntialiasing)
     p.setFont(f)
-    p.setPen(QColor("#000000"))
+    p.setPen(QColor(0, 0, 0, 110 if stale else 255))
     p.drawText(QRectF(0, 0, w, h), Qt.AlignVCenter | Qt.AlignLeft, text)
     p.end()
     pm.setDevicePixelRatio(_STATUS_DPR)
@@ -131,27 +131,40 @@ def _dot_pix(kind: str) -> QPixmap:
 
 
 def menubar_icon(mode: str, snap: dict) -> QIcon:
-    """按模式构建菜单栏模板图标"""
+    """按模式构建菜单栏模板图标
+
+    - icon   节点图标（默认）
+    - status 节点图标 + 连接状态点（空心=未连接/数据过期）
+    - ip     主网卡网段文字；无 IPv4 时回退为「节点图标 + 空心点」
+    - iface  主网卡设备名
+    数据过期（stale）时文字降透明度，避免把旧状态伪装成实时。
+    """
     snap = snap or {}
     ic = QIcon()
     ifc = _primary_iface(snap)
     has_ip = bool(ifc.get("ipv4"))
     status = ifc.get("status")
+    stale = bool(snap.get("stale"))
+    node = _svg_pix(icons._ICONS["nodes"], 17, _STATUS_DPR)
 
     if mode == "ip" and has_ip:
-        pm = _text_pix(_network_text(ifc.get("ipv4"), ifc.get("mask") or ""))
+        pm = _text_pix(_network_text(ifc.get("ipv4"), ifc.get("mask") or ""), stale=stale)
     elif mode == "iface" and ifc:
-        pm = _text_pix(ifc.get("device") or ifc.get("service") or "—")
+        pm = _text_pix(ifc.get("device") or ifc.get("service") or "—", stale=stale)
     elif mode == "status":
-        dot_kind = "up" if (has_ip and status == "up") else "down"
-        pm = _compose(_svg_pix(icons._ICONS["nodes"], 17, _STATUS_DPR), _dot_pix(dot_kind))
+        dot_kind = "up" if (has_ip and status == "up" and not stale) else "down"
+        pm = _compose(node, _dot_pix(dot_kind))
+    elif mode in ("ip", "iface"):
+        # 无 IP / 无网卡：回退到带状态点的节点图标，而不是空白文字
+        pm = _compose(node, _dot_pix("down"))
     else:
         pm = _svg_pix(icons._ICONS["nodes"], 18, 2.0)
     ic.addPixmap(pm)
     try:
         ic.setIsMask(True)
     except Exception:
-        pass
+        from core import applog
+        applog.exception("menubar_icon.setIsMask", Exception("QIcon.setIsMask 不可用"))
     return ic
 
 
@@ -160,8 +173,10 @@ def tooltip_text(snap: dict) -> str:
     ifc = _primary_iface(snap)
     if not ifc:
         return "IP 工具箱 · Network Control\n未检测到网卡"
+    from .status import overall, summary
+    text, _kind = overall(snap)
     ip = ifc.get("ipv4") or "无 IP"
-    n = len(snap.get("ifaces") or [])
     stale = "（数据已过期）" if snap.get("stale") else ""
     return (f"IP 工具箱 · Network Control\n"
-            f"{ifc.get('service') or ifc.get('device')}：{ip} · 共 {n} 个网卡{stale}")
+            f"{ifc.get('service') or ifc.get('device')}：{ip}{stale}\n"
+            f"{text} · {summary(snap)}")

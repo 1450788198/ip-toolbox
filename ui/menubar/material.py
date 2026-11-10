@@ -18,9 +18,12 @@ def reduce_motion() -> bool:
         return False
 
 
-def paint_panel_background(widget, dark: bool, radius: float = 12.0,
+def paint_panel_background(widget, dark: bool, radius: float = 13.0,
                            vibrancy_ok: bool = False):
-    """面板背景：自绘圆角底（vibrancy_ok 参数保留兼容签名，恒走自绘）"""
+    """面板背景：自绘圆角底（vibrancy_ok 参数保留兼容签名，恒走自绘）
+
+    近不透明（alpha ≈ 252/255）→ 既像系统悬浮面板，又绝不会透出底层窗口文字。
+    """
     p = QPainter(widget)
     p.setRenderHint(QPainter.Antialiasing)
     r = widget.rect().adjusted(0, 0, -1, -1)
@@ -28,13 +31,14 @@ def paint_panel_background(widget, dark: bool, radius: float = 12.0,
     path.addRoundedRect(r, radius, radius)
     grad = QLinearGradient(0, r.top(), 0, r.bottom())
     if dark:
-        grad.setColorAt(0.0, QColor(46, 46, 50, 252))
-        grad.setColorAt(1.0, QColor(38, 38, 42, 252))
+        grad.setColorAt(0.0, QColor(44, 44, 48, 252))
+        grad.setColorAt(1.0, QColor(34, 34, 38, 252))
     else:
-        grad.setColorAt(0.0, QColor(249, 249, 251, 253))
-        grad.setColorAt(1.0, QColor(241, 241, 245, 253))
+        grad.setColorAt(0.0, QColor(252, 252, 253, 252))
+        grad.setColorAt(1.0, QColor(243, 243, 246, 252))
     p.fillPath(path, grad)
-    border = QColor(0, 0, 0, 36) if not dark else QColor(255, 255, 255, 30)
+    # 1px 描边：浅色下略重、深色下略轻，保证白底/深底上都有边界
+    border = QColor(0, 0, 0, 26) if not dark else QColor(255, 255, 255, 26)
     p.setPen(border)
     p.setBrush(Qt.NoBrush)
     p.drawPath(path)
