@@ -1,9 +1,9 @@
 """矢量线性图标（Lucide 风格，SVG 内联渲染）
 
-- icon(key, color)         单色图标
-- nav_icon(key, dark)      侧边栏两态（未选中灰 / 选中白）
+- icon(key, color)          单色图标
+- nav_icon(key, dark)       侧边栏两态（未选中灰 / 选中白）
 - svg_svg(key, color, size) 空状态大图标
-- make_tray_icon()         菜单栏模板图标（透明底、自动反色）
+菜单栏模板图标见 ui/menubar/icon.py（menubar_icon）
 """
 from PySide6.QtCore import QByteArray, Qt
 from PySide6.QtGui import QIcon, QPainter, QPixmap
@@ -127,8 +127,41 @@ _ICONS = {
         '<path d="M9 15.8a4.6 4.6 0 0 1 6 0"/><path d="M12 19.4h.01"/>'
     ),
     "chevron": ('<path d="m9 5 7 7-7 7"/>'),
+    "chevronDown": ('<path d="m5 9 7 7 7-7"/>'),
     "download": ('<path d="M12 3.5v11"/><path d="m7.5 10 4.5 4.5L16.5 10"/><path d="M4 20.5h16"/>'),
     "folder": ('<path d="M3 6.5A2 2 0 0 1 5 4.5h4l2 2.5h8a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>'),
+    # ---- 菜单栏 / 面板 ----
+    # 网络节点（菜单栏主图标）：中心节点连两侧
+    "nodes": (
+        '<circle cx="5" cy="6.5" r="2.5"/><circle cx="19" cy="6.5" r="2.5"/>'
+        '<circle cx="12" cy="17.5" r="2.5"/>'
+        '<path d="M7.2 7.6 10.4 15"/><path d="M16.8 7.6 13.6 15"/>'
+    ),
+    # USB 网卡：插头
+    "usb": (
+        '<rect x="7.5" y="9" width="9" height="12" rx="2"/>'
+        '<path d="M12 9V3.5"/><path d="m9.5 6 2.5-2.5L14.5 6"/>'
+    ),
+    # 雷雳：闪电
+    "bolt": ('<path d="M13 2.5 5 13.5h6L11 21.5l8-11h-6z"/>'),
+    # 蓝牙
+    "bt": ('<path d="m7 8 10 8.5L12 21V3l5 4.5L7 16"/>'),
+    # 桥接
+    "bridge": (
+        '<path d="M3 13.5h18"/><path d="M6 13.5V8a6 6 0 0 1 12 0v5.5"/>'
+        '<path d="M3 13.5V18"/><path d="M21 13.5V18"/>'
+    ),
+    # 主窗口
+    "window": (
+        '<rect x="3" y="4.5" width="18" height="15" rx="2.5"/>'
+        '<path d="M3 9h18"/><path d="M6 6.75h.01"/><path d="M8.75 6.75h.01"/>'
+    ),
+    # 诊断：活动监视器式脉冲
+    "diagnose": ('<path d="M3 12h4l2.5-6 4 12 2.5-6h5"/>'),
+    # 断电/停止（DHCP）
+    "stop": ('<rect x="6.5" y="6.5" width="11" height="11" rx="2"/>'),
+    # 播放（DHCP 启动）
+    "play": ('<path d="M8 5.5v13l11-6.5z"/>'),
 }
 
 _COLOR_NORMAL = "#6E6E73"
@@ -172,14 +205,3 @@ def nav_icon(key: str, dark: bool = False, size: int = 16) -> QIcon:
 def svg_svg(key: str, color: str = _COLOR_NORMAL, size: int = 64) -> QPixmap:
     """空状态大图"""
     return _pix(_SVG_TPL.format(color=color, paths=_ICONS.get(key, "")), size)
-
-
-def make_tray_icon() -> QIcon:
-    """菜单栏模板图标：透明底黑色线条，macOS 自动适配明暗菜单栏"""
-    ic = QIcon()
-    ic.addPixmap(_pix(_SVG_TPL.format(color="#000000", paths=_ICONS["ip"]), 18, 2.0))
-    try:
-        ic.setIsMask(True)
-    except Exception:
-        pass
-    return ic

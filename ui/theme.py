@@ -355,24 +355,6 @@ class ThemeManager(QObject):
         self._dark = is_dark(self.app) if self.mode == "system" else (self.mode == "dark")
 
 
-def tray_menu_qss(dark: bool) -> str:
-    """托盘菜单样式：保证禁用行（状态信息）也有足够对比度"""
-    t = tokens(dark)
-    return f"""
-QMenu#trayMenu {{
-    background-color: {t['surface']};
-    border: 1px solid {t['sep']};
-    border-radius: 10px;
-    padding: 5px;
-    font-size: 13px;
-}}
-QMenu#trayMenu::item {{ padding: 6px 18px 6px 14px; color: {t['text']}; border-radius: 6px; }}
-QMenu#trayMenu::item:disabled {{ color: {t['text2']}; font-weight: 500; }}
-QMenu#trayMenu::item:selected {{ background-color: {t['accent']}; color: {t['on_accent']}; }}
-QMenu#trayMenu::separator {{ height: 1px; background: {t['sep_soft']}; margin: 4px 8px; }}
-"""
-
-
 _THEME_REF = {}
 
 

@@ -21,10 +21,18 @@
 
 ### 系统
 - **操作记录**：记录真实配置变更（前 → 后 + 结果），可查看详情与复制（不提供未经确认的一键回滚）
-- **设置**：浅色 / 深色 / 跟随系统、自动刷新间隔、默认网卡、启动选项、Touch ID 测试、sudoers 免密授权开关
+- **设置**：浅色 / 深色 / 跟随系统、自动刷新间隔、默认网卡、菜单栏图标模式、启动选项、Touch ID 测试、sudoers 免密授权开关
 - **外观**：完整深色模式，跟随系统自动切换
 - **权限**：Touch ID 指纹解锁应用；一次性 sudoers 白名单授权后操作免密
-- **托盘**：与主窗口解耦，菜单实时显示各网卡 IP / 掩码 / 网关 / DNS、手工路由与 DHCP 状态
+
+### Network Control（菜单栏控制中心）
+- 点击菜单栏图标弹出原生毛玻璃面板（NSVisualEffectView），浅色 / 深色自动适配
+- 网卡分组列表（已连接 / 未连接 / 未插入），类型图标区分 Wi-Fi / USB / 雷雳 / 蓝牙 / 桥接 / VPN
+- 每张网卡可展开：IP / 掩码 / 网关 / DNS / MAC / IPv6 / 附加 IP / 配置方式 / 链路速率，**点击即复制**；右键一键复制运维格式的配置摘要
+- IP 方案两列快捷切换（应用中的方案高亮），应用前内嵌确认
+- 总体网络状态胶囊（正常 / 部分断开 / 异常 / 刷新中 / 数据过期），底部快捷栏（主窗口 / 网络诊断 / 设置 / 退出）
+- 菜单栏图标四种显示模式：节点图标 / 连接状态 / 当前 IP 网段 / 当前网卡名（模板图标，明暗菜单栏自适应）
+- 主窗口与菜单栏共享同一 Network State（`core/netstate.py` 单一采集循环），不重复执行系统命令；刷新失败保留旧数据并明确标注"数据已过期"
 
 > 所有掩码输入框均支持简写：`24`、`/24`、`255.255.255.0` 三种写法通吃。
 
@@ -70,19 +78,23 @@ pyinstaller "IP工具箱.spec" --noconfirm --distpath dist
 │   ├── dhcp_runner.py      # DHCP 独立进程入口
 │   ├── dhcp_controller.py  # DHCP 进程管理（提权拉起 / 状态监控）
 │   ├── presets.py          # IP 方案持久化与校验
-│   ├── settings.py         # 应用设置（外观 / 刷新 / 默认网卡）
+│   ├── settings.py         # 应用设置（外观 / 刷新 / 默认网卡 / 菜单栏图标）
+│   ├── netstate.py         # 统一 Network State（主窗口与菜单栏共享的数据源）
+│   ├── netinfo.py          # 只读补充信息（IPv6 / 网卡类型识别）
 │   ├── history.py          # 操作记录持久化
 │   ├── subnet_utils.py     # 子网计算 / VLSM 纯函数
 │   ├── dns_data.py         # 公共与分省运营商 DNS 数据、ping 测速
 │   ├── elevation.py        # sudoers 白名单授权
 │   └── biometric.py        # Touch ID 指纹验证
 └── ui/
-    ├── main_window.py      # 主窗口 / 侧边栏导航 / 托盘
+    ├── main_window.py      # 主窗口 / 侧边栏导航 / Network Control 集成
     ├── theme.py            # 设计系统：颜色令牌 + 浅色/深色 QSS
     ├── icons.py            # Lucide 风格内联 SVG 图标
     ├── common.py           # QThread 工具
     ├── dialogs.py          # 变更预览、方案、路由等统一对话框
     ├── components/         # 卡片 / 侧边栏 / Toast / 徽标等通用组件
+    ├── menubar/            # 菜单栏 Network Control：模板图标（4 种模式）、
+    │                       #   Qt.Popup 面板、NSVisualEffectView 材质、网卡行、方案芯片
     └── pages/              # dashboard / network / routes / dhcp /
                             # subnet / vlsm / dns / history / settings
 ```

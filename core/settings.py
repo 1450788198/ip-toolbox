@@ -8,6 +8,7 @@ DEFAULTS = {
     "default_iface": "",          # 网络服务名，空=自动（优先外置网卡）
     "start_minimized": False,     # 启动时只驻留菜单栏
     "confirm_dangerous": True,    # 危险操作二次确认
+    "menu_bar_icon": "icon",      # 菜单栏图标：icon|status|ip|iface
 }
 
 

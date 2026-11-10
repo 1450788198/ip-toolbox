@@ -1,25 +1,25 @@
-"""主窗口：macOS 原生标题栏 + 220px 侧边栏 + 页面栈 + 状态栏 + 菜单栏托盘"""
+"""主窗口：macOS 原生标题栏 + 220px 侧边栏 + 页面栈 + 状态栏 + Network Control 菜单栏面板"""
 import datetime
 import os
 import sys
 
 from PySide6.QtCore import QTimer, Qt
-from PySide6.QtGui import QAction, QCursor
+from PySide6.QtGui import QCursor
 from PySide6.QtWidgets import (QApplication, QHBoxLayout, QLabel, QMainWindow,
-                               QMenu, QStackedWidget, QStatusBar,
-                               QSystemTrayIcon, QVBoxLayout, QWidget)
+                               QStackedWidget, QStatusBar, QVBoxLayout, QWidget)
 
 from core import presets as preset_store
 from core import settings
 from core.dhcp_controller import DhcpController, app_data_dir
-from core.netbase import IS_MAC, IS_WIN, is_system_route
+from core.netbase import IS_MAC, IS_WIN
+from core.netstate import NetworkState
 from core.net_mac import MacBackend
 from core.net_win import WinBackend
 from . import theme
 from .common import Worker
 from .components import Sidebar, Toast
 from .dialogs import confirm
-from .icons import make_tray_icon
+from .menubar import Panel, menubar_icon, tooltip_text
 from .pages.dashboard import DashboardPage
 from .pages.dhcp import DhcpPage
 from .pages.dns import DnsPage
@@ -58,6 +58,7 @@ class MainWindow(QMainWindow):
         self.backend = get_backend()
         self.ifaces = []
         self._workers = []
+        self.state = NetworkState(self.backend, self)
         self.setWindowTitle("IP 工具箱")
         self.setMinimumSize(1080, 700)
         self.resize(1240, 800)
@@ -95,6 +96,7 @@ class MainWindow(QMainWindow):
         }
         for key, page in self.pages.items():
             self.stack.addWidget(page)
+            page.state = self.state          # 共享 Network State
 
         self.pages["dashboard"].navigate.connect(self.go_to)
         self.pages["dashboard"].open_iface.connect(self._open_iface)
@@ -168,6 +170,11 @@ class MainWindow(QMainWindow):
     def _settings_applied(self):
         self.pages["network"].reload_settings()
         self.pages["dashboard"].refresh()
+        self.state.set_interval(settings.get("refresh_interval"))
+        self.state.refresh()
+        # 菜单栏图标模式可能已变化，立即应用
+        self.tray.setIcon(menubar_icon(settings.get("menu_bar_icon"),
+                                       self.state.snapshot()))
 
     def _theme_changed(self, dark: bool):
         self.sidebar.refresh_icons(dark)
@@ -197,121 +204,83 @@ class MainWindow(QMainWindow):
         if getattr(self, "toast", None):
             self.toast.reposition()
 
-    # ---------------- 托盘 ----------------
+    # ---------------- Network Control 菜单栏 ----------------
     def _build_tray(self):
-        self.tray = QSystemTrayIcon(make_tray_icon(), self)
-        self.tray.setToolTip("IP 工具箱")
-        self._rebuild_tray_menu()
+        from PySide6.QtWidgets import QSystemTrayIcon
+        self.panel = Panel(self.state)
+        self.panel.open_main.connect(self._show_window)
+        self.panel.open_settings.connect(self._open_settings)
+        self.panel.open_diagnostics.connect(self._open_diagnostics)
+        self.panel.open_dhcp.connect(self._open_dhcp)
+        self.panel.apply_preset_requested.connect(self._apply_preset_from_panel)
+        self.panel.quit_requested.connect(self._quit)
+
+        self.tray = QSystemTrayIcon(menubar_icon(settings.get("menu_bar_icon"),
+                                                self.state.snapshot()), self)
+        self.tray.setToolTip(tooltip_text(self.state.snapshot()))
         self.tray.activated.connect(self._tray_activated)
         self.tray.show()
-        self._tray_timer = QTimer(self)
-        self._tray_timer.timeout.connect(self._refresh_tray)
-        self._tray_timer.start(6000)
 
-    def _refresh_tray(self):
-        def job():
-            routes = self.backend.list_routes()
-            dns = {}
-            for i in self.ifaces or []:
-                svc = i.get("service")
-                if i.get("ipv4") and svc:
-                    try:
-                        dns[svc] = self.backend.get_dns(svc)
-                    except Exception:
-                        dns[svc] = []
-            return routes, dns
-
-        w = Worker(job)
-        w.ok.connect(lambda r: self._rebuild_tray_menu(r[0], r[1]))
-        w.err.connect(lambda _: self._rebuild_tray_menu([], {}))
-        w.start()
-        self._workers.append(w)
+        self.state.updated.connect(self._on_state)
+        self.state.start()
 
     def _tray_activated(self, reason):
+        from PySide6.QtWidgets import QSystemTrayIcon
         if reason in (QSystemTrayIcon.Trigger, QSystemTrayIcon.Context):
-            self._tray_menu.popup(QCursor.pos())
+            self.panel.toggle_at(QCursor.pos())
 
-    def _rebuild_tray_menu(self, routes=None, dns=None):
-        dark = theme.current().dark if theme.current() else False
-        menu = QMenu()
-        menu.setObjectName("trayMenu")
-        menu.setStyleSheet(theme.tray_menu_qss(dark))
-        dns = dns or {}
+    def _on_state(self, snap: dict):
+        """共享状态更新：菜单栏图标 + 面板 + 主窗口各页"""
+        mode = settings.get("menu_bar_icon")
+        self.tray.setIcon(menubar_icon(mode, snap))
+        self.tray.setToolTip(tooltip_text(snap))
+        self.panel.update_state(snap)
 
-        def prefix(mask):
-            try:
-                import ipaddress
-                return f"/{ipaddress.IPv4Network(f'0.0.0.0/{mask}', strict=False).prefixlen}"
-            except Exception:
-                return ""
+        ifaces = snap.get("ifaces") or []
+        if ifaces and ifaces != self.ifaces:
+            self.ifaces = ifaces
+            self.lbl_ifaces.setText(f"网卡 {len(ifaces)} 个")
+            self.pages["dhcp"].set_ifaces(ifaces)
+        self.pages["network"].apply_state(snap)
+        self.pages["dashboard"].apply_state(snap)
 
-        ifaces = [i for i in (self.ifaces or []) if i.get("ipv4")]
-        if not ifaces:
-            menu.addAction("未获取到 IP 地址").setEnabled(False)
-        for i in ifaces:
-            svc = i.get("service") or i.get("port")
-            menu.addAction(f"{svc} ({i.get('device')})").setEnabled(False)
-            menu.addAction(f"    IP    {i.get('ipv4')}{prefix(i.get('mask') or '')}"
-                           f"    掩码 {i.get('mask') or '—'}").setEnabled(False)
-            menu.addAction(f"    网关  {i.get('router') or '—'}").setEnabled(False)
-            menu.addAction(f"    DNS   {', '.join((dns.get(svc) or [])[:3]) or '—'}").setEnabled(False)
+    def _open_settings(self):
+        self._show_window()
+        self.go_to("settings")
 
-        menu.addSeparator()
-        biz = [r for r in (routes or []) if not is_system_route(r)]
-        menu.addAction(f"手工路由：{len(biz)} 条").setEnabled(False)
-        for r in biz[:5]:
-            menu.addAction(f"    {r['destination']}  →  {r.get('gateway') or '直连'}").setEnabled(False)
-        if len(biz) > 5:
-            menu.addAction(f"    … 共 {len(biz)} 条").setEnabled(False)
+    def _open_diagnostics(self):
+        self._show_window()
+        self.go_to("dns")
+        self.notify("网络诊断：已打开 DNS 测速（连通性与延迟）", "info")
 
-        menu.addSeparator()
-        running = self._dhcp_running()
-        menu.addAction(f"DHCP 服务：{'运行中' if running else '未运行'}").setEnabled(False)
-        act_dhcp = QAction("停止 DHCP 服务" if running else "启动 DHCP 服务…", menu)
-        act_dhcp.triggered.connect(self._toggle_dhcp_from_tray)
-        menu.addAction(act_dhcp)
+    def _open_dhcp(self):
+        self._show_window()
+        self.go_to("dhcp")
 
-        from core.elevation import is_installed
-        if not is_installed():
-            act = QAction("开启免密授权（Touch ID / 密码，一次即可）")
-            act.triggered.connect(self._install_elevation)
-            menu.addAction(act)
+    def _apply_preset_from_panel(self, p: dict):
+        svc = p["service"]
+        err = preset_store.validate_preset(p)
+        if err:
+            self.panel.show_toast(f"方案无效：{err}", "err")
+            return
 
-        menu.addSeparator()
-        presets = preset_store.load_presets()
-        if presets:
-            for i, p in enumerate(presets):
-                act = QAction(f"切换到「{p['name']}」({p.get('service')})", menu)
-                act.triggered.connect(lambda checked=False, idx=i: self._apply_preset_from_tray(idx))
-                menu.addAction(act)
-            menu.addSeparator()
+        def job():
+            if p.get("mode") == "static":
+                self.backend.set_static_ip(svc, p.get("ip", ""),
+                                           p.get("mask", "255.255.255.0"),
+                                           p.get("router", ""))
+            else:
+                self.backend.set_dhcp(svc)
+            if p.get("dns"):
+                self.backend.set_dns(svc, p["dns"])
+            return True
 
-        act_show = QAction("打开主窗口")
-        act_show.triggered.connect(self._show_window)
-        menu.addAction(act_show)
-        act_quit = QAction("退出")
-        act_quit.triggered.connect(self._quit)
-        menu.addAction(act_quit)
-        self._tray_menu = menu
-
-    def _dhcp_running(self):
-        try:
-            return DhcpController().is_running()
-        except Exception:
-            return False
-
-    def _toggle_dhcp_from_tray(self):
-        ctrl = DhcpController()
-        if ctrl.is_running():
-            w = Worker(ctrl.stop)
-            w.ok.connect(lambda _: (self._refresh_tray(), self._poll_status(),
-                                    self.pages["dhcp"]._poll()))
-            w.start()
-            self._workers.append(w)
-        else:
-            self._show_window()
-            self.go_to("dhcp")
-            self.notify("请在 DHCP 服务页确认地址池后启动", "info")
+        w = Worker(job)
+        w.ok.connect(lambda _: (self.panel.show_toast(f"已切换到「{p['name']}」"),
+                                self.state.refresh()))
+        w.err.connect(lambda m: self.panel.show_toast(f"切换失败：{m}", "err"))
+        w.start()
+        self._workers.append(w)
 
     # ---------------- 授权 ----------------
     def _install_elevation(self, quiet=False):
@@ -325,7 +294,7 @@ class MainWindow(QMainWindow):
         w = Worker(job)
         w.ok.connect(lambda _: (self.log("免密授权已开启"),
                                 self.notify("免密授权已开启，之后操作不再需要密码"),
-                                self._poll_status(), self._refresh_tray()))
+                                self._poll_status(), self.state.refresh()))
         w.err.connect(lambda m: self.notify(f"授权失败：{m}", "err"))
         w.start()
         self._workers.append(w)
@@ -345,43 +314,15 @@ class MainWindow(QMainWindow):
                    "开启"):
             self._install_elevation()
 
-    # ---------------- 托盘方案切换 ----------------
-    def _apply_preset_from_tray(self, idx):
-        presets = preset_store.load_presets()
-        if idx >= len(presets):
-            return
-        p = presets[idx]
-        svc = p["service"]
-
-        def job():
-            if p.get("mode") == "static":
-                self.backend.set_static_ip(svc, p.get("ip", ""),
-                                           p.get("mask", "255.255.255.0"),
-                                           p.get("router", ""))
-            else:
-                self.backend.set_dhcp(svc)
-            if p.get("dns"):
-                self.backend.set_dns(svc, p["dns"])
-            return True
-
-        w = Worker(job)
-        w.ok.connect(lambda _: (self.notify(f"已切换到「{p['name']}」"),
-                                self.pages["network"].refresh(),
-                                self.tray.showMessage("IP 工具箱",
-                                                      f"已切换到「{p['name']}」",
-                                                      QSystemTrayIcon.Information, 3000)))
-        w.err.connect(lambda m: (self.notify(f"切换失败：{m}", "err"),
-                                 self.tray.showMessage("切换失败", m,
-                                                       QSystemTrayIcon.Critical, 4000)))
-        w.start()
-        self._workers.append(w)
-
+    # ---------------- 窗口 ----------------
     def _show_window(self):
         self.showNormal()
         self.raise_()
         self.activateWindow()
 
     def _quit(self):
+        self.state.stop()
+        self.panel.close()
         self.tray.hide()
         QApplication.quit()
 
@@ -391,7 +332,8 @@ class MainWindow(QMainWindow):
             return
         event.ignore()
         self.hide()
-        self.tray.showMessage("IP 工具箱", "已最小化到菜单栏，点击菜单栏图标可打开菜单",
+        from PySide6.QtWidgets import QSystemTrayIcon
+        self.tray.showMessage("IP 工具箱", "已最小化到菜单栏，点击菜单栏图标打开 Network Control",
                               QSystemTrayIcon.Information, 3000)
 
 

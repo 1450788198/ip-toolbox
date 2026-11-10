@@ -101,10 +101,41 @@ class NetworkPage(QWidget):
         self._mode_current = ""
         self._seg_touched = False
         self._build()
-        self._timer = QTimer(self)
-        self._timer.timeout.connect(self._auto_refresh)
-        self._apply_interval()
-        QTimer.singleShot(80, self.refresh)
+        # 网卡列表数据由共享 NetworkState 统一调度（见 apply_state）
+
+    # ---------------- 共享状态 ----------------
+    def apply_state(self, snap: dict):
+        """NetworkState 更新回调：只在数据变化时重建列表"""
+        ifaces = snap.get("ifaces") or []
+        if snap.get("refreshing") and not ifaces:
+            return
+        self._filled(list(ifaces))
+
+    def _apply_interval(self):
+        pass  # 刷新节奏由 NetworkState 统一调度
+
+    def reload_settings(self):
+        self._load_snapshot_if_stale()
+
+    def _load_snapshot_if_stale(self):
+        pass
+
+    def on_show(self):
+        self.refresh()
+
+    def refresh(self):
+        self._auto = False
+        if self.state is not None:
+            self.state.refresh()      # 更新后经 apply_state 回填
+        else:
+            self._start_load()
+
+    def _auto_refresh(self):
+        self._auto = True
+        if self.state is not None:
+            self.state.refresh()
+        else:
+            self._start_load()
 
     # ---------------- UI ----------------
     def _build(self):
@@ -299,26 +330,9 @@ class NetworkPage(QWidget):
         card.add_layout(actions)
         self.detail.addWidget(card)
 
-    # ---------------- 刷新 ----------------
-    def _apply_interval(self):
-        interval = max(2, int(settings.get("refresh_interval") or 4))
-        self._timer.start(interval * 1000)
-
-    def reload_settings(self):
-        self._apply_interval()
-
-    def on_show(self):
-        self.refresh()
-
-    def refresh(self):
-        self._auto = False
-        self._start_load()
-
-    def _auto_refresh(self):
-        self._auto = True
-        self._start_load()
-
+    # ---------------- 刷新（数据由 apply_state 注入） ----------------
     def _start_load(self):
+        """无共享状态时的兜底：直接读后端"""
         if any(w.isRunning() for w in self._workers):
             return
         if not self._auto:

@@ -186,6 +186,9 @@ class DhcpPage(Page):
             self._iface_changed(idx)
 
     def _reload(self):
+        if getattr(self, "state", None) is not None and self.state.ifaces():
+            self.set_ifaces(self.state.ifaces())
+            return
         w = Worker(self.backend.list_interfaces)
         w.ok.connect(self.set_ifaces)
         w.start()

@@ -285,6 +285,8 @@ class RoutesPage(Page):
         self._workers.append(w)
 
     def _iface_hints(self):
+        if getattr(self, "state", None) is not None and self.state.ifaces():
+            return self.state.ifaces()
         try:
             from core.netbase import sort_interfaces
             return sort_interfaces(self.backend.list_interfaces())

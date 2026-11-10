@@ -207,6 +207,9 @@ class DnsPage(Page):
         self.panel_isp.set_providers(dns_data.isp_providers(province))
 
     def reload_ifaces(self):
+        if getattr(self, "state", None) is not None and self.state.ifaces():
+            self._ifaces(self.state.ifaces())
+            return
         w = Worker(self.backend.list_interfaces)
         w.ok.connect(self._ifaces)
         w.err.connect(lambda m: self.notify(f"刷新网卡失败：{m}", "err"))

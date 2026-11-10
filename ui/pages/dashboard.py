@@ -35,10 +35,48 @@ class DashboardPage(ScrollPage):
         self.presets = []
         self._workers = []
         self._build()
+        # 数据由共享 NetworkState 驱动（apply_state）；state 未就绪时兜底自刷
         self._timer = QTimer(self)
-        self._timer.timeout.connect(self.refresh)
-        self._timer.start(10000)
-        QTimer.singleShot(120, self.refresh)
+        self._timer.timeout.connect(self._fallback_refresh)
+        self._timer.start(12000)
+        QTimer.singleShot(120, self._fallback_refresh)
+
+    def _fallback_refresh(self):
+        if getattr(self, "state", None) is None:
+            self.refresh()
+
+    # ---------------- 共享状态 ----------------
+    def apply_state(self, snap: dict):
+        """由 NetworkState 驱动：直接从快照填充，不再重复执行命令"""
+        ifaces = snap.get("ifaces") or []
+        if not ifaces and snap.get("refreshing"):
+            return
+        detail = snap.get("detail") or {}
+        current = self._pick_current(ifaces)
+        d = detail.get(current.get("service") or "", {}) if current else {}
+        self._fill({
+            "ifaces": ifaces,
+            "state": snap.get("dhcp_state") or {},
+            "dns": d.get("dns") or [],
+            "rate": d.get("link") or "",
+            "current": current,
+            "history": history.load()[-5:],
+            "presets": snap.get("presets") or [],
+        })
+
+    @staticmethod
+    def _pick_current(ifaces):
+        default_svc = settings.get("default_iface")
+        current = None
+        for i in ifaces:
+            if default_svc and i.get("service") == default_svc:
+                current = i
+                break
+        if current is None:
+            candidates = [i for i in ifaces if i.get("ipv4")]
+            candidates.sort(key=lambda i: (not iface_is_external(i), i.get("status") != "up"))
+            current = candidates[0] if candidates else (ifaces[0] if ifaces else None)
+        return current
 
     # ---------------- UI ----------------
     def _build(self):

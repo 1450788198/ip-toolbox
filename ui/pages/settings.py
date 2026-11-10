@@ -71,6 +71,23 @@ class SettingsPage(ScrollPage):
         row2.addStretch(1)
         general.add_layout(row2)
 
+        row3 = QHBoxLayout()
+        row3.setSpacing(12)
+        row3.addWidget(QLabel("菜单栏图标"))
+        self.cmb_menubar = QComboBox()
+        self.cmb_menubar.addItem("网络节点图标", "icon")
+        self.cmb_menubar.addItem("连接状态", "status")
+        self.cmb_menubar.addItem("当前 IP 网段", "ip")
+        self.cmb_menubar.addItem("当前网卡", "iface")
+        cur = self.cfg.get("menu_bar_icon", "icon")
+        self.cmb_menubar.setCurrentIndex(
+            max(0, self.cmb_menubar.findData(cur)))
+        self.cmb_menubar.setMinimumWidth(160)
+        self.cmb_menubar.currentIndexChanged.connect(self._menubar_changed)
+        row3.addWidget(self.cmb_menubar)
+        row3.addStretch(1)
+        general.add_layout(row3)
+
         self.chk_min = QCheckBox("启动时只驻留菜单栏（不显示主窗口）")
         self.chk_min.setChecked(bool(self.cfg.get("start_minimized")))
         self.chk_min.toggled.connect(
@@ -151,7 +168,10 @@ class SettingsPage(ScrollPage):
         def job():
             touch = biometry_available() if IS_MAC else False
             elev = is_installed() if IS_MAC else False
-            ifaces = sort_interfaces(self.backend.list_interfaces())
+            if getattr(self, "state", None) is not None and self.state.ifaces():
+                ifaces = self.state.ifaces()
+            else:
+                ifaces = sort_interfaces(self.backend.list_interfaces())
             return touch, elev, ifaces
 
         w = Worker(job)
@@ -196,6 +216,9 @@ class SettingsPage(ScrollPage):
 
     def _default_changed(self, _idx):
         self._save("default_iface", self.cmb_default.currentData() or "")
+
+    def _menubar_changed(self, _idx):
+        self._save("menu_bar_icon", self.cmb_menubar.currentData() or "icon")
 
     def _goto_history(self):
         win = self.window()
