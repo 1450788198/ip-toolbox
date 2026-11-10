@@ -1,15 +1,12 @@
-"""弹出面板背景材质：NSVisualEffectView（原生毛玻璃）+ 纯 Q 绘制降级
+"""弹出面板背景：完全自绘的悬浮底色
 
-已实测验证（macOS 27.2 / Apple Silicon / PySide6 6.12 + pyobjc 13）：
-- 材质视图挂在 Qt 根视图的父视图（NSNextStepFrame）之下，作为兄弟视图垫底，
-  Qt 内容正常绘制在毛玻璃之上；
-- NSWindow 设为非不透明 + clearColor，Qt 侧 WA_TranslucentBackground；
-- 圆角通过材质视图 layer 的 cornerRadius + masksToBounds 实现；
-- 明暗跟随面板自身主题（显式设置 NSAppearance，不依赖系统外观）。
-任何一步失败都会静默降级为面板自绘的半透明圆角背景。
+不再使用 NSVisualEffectView 原生材质——在打包环境下该方案出现过
+两次合成错乱（背景全透明穿帮 / 半透明残影小窗），改为纯 QPainter
+绘制近不透明圆角底 + 轻渐变 + 描边，外观接近原生 NSPopover，
+且任何环境下渲染行为完全确定。
 """
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QPainter, QColor, QPainterPath
+from PySide6.QtGui import QPainter, QColor, QPainterPath, QLinearGradient
 
 
 def reduce_motion() -> bool:
@@ -21,67 +18,23 @@ def reduce_motion() -> bool:
         return False
 
 
-def attach_vibrancy(widget, dark: bool, radius: float = 12.0) -> bool:
-    """给已显示的无边框窗口挂原生材质。成功返回 True。"""
-    try:
-        from AppKit import (NSVisualEffectView, NSVisualEffectMaterialPopover,
-                            NSVisualEffectBlendingModeBehindWindow,
-                            NSVisualEffectStateActive, NSColor, NSWindowBelow,
-                            NSAppearance)
-        wid = widget.winId()
-        if not wid:
-            return False
-        root = widget._pyobjc_view() if hasattr(widget, "_pyobjc_view") \
-            else __import__("objc").objc_object(c_void_p=int(wid))
-        win = root.window()
-        if win is None or root.superview() is None:
-            return False
-        win.setOpaque_(False)
-        win.setBackgroundColor_(NSColor.clearColor())
-        eff = NSVisualEffectView.alloc().initWithFrame_(root.bounds())
-        eff.setMaterial_(NSVisualEffectMaterialPopover)
-        eff.setBlendingMode_(NSVisualEffectBlendingModeBehindWindow)
-        eff.setState_(NSVisualEffectStateActive)
-        eff.setAutoresizingMask_(18)                     # 宽高跟随
-        eff.setWantsLayer_(True)
-        eff.layer().setCornerRadius_(radius)
-        eff.layer().setMasksToBounds_(True)
-        try:
-            name = "NSAppearanceNameDarkAqua" if dark else "NSAppearanceNameAqua"
-            eff.setAppearance_(NSAppearance.appearanceNamed_(name))
-        except Exception:
-            pass
-        root.superview().addSubview_positioned_relativeTo_(eff, NSWindowBelow, root)
-        widget._effect_view = eff
-        return True
-    except Exception:
-        return False
-
-
-def detach_vibrancy(widget):
-    eff = getattr(widget, "_effect_view", None)
-    if eff is not None:
-        try:
-            eff.removeFromSuperview()
-        except Exception:
-            pass
-        widget._effect_view = None
-
-
 def paint_panel_background(widget, dark: bool, radius: float = 12.0,
                            vibrancy_ok: bool = False):
-    """面板背景绘制：有材质时只画描边，无材质时画半透明圆角底"""
+    """面板背景：自绘圆角底（vibrancy_ok 参数保留兼容签名，恒走自绘）"""
     p = QPainter(widget)
     p.setRenderHint(QPainter.Antialiasing)
     r = widget.rect().adjusted(0, 0, -1, -1)
     path = QPainterPath()
     path.addRoundedRect(r, radius, radius)
-    if not vibrancy_ok:
-        from PySide6.QtWidgets import QApplication
-        base = QColor("#F2F2F4") if not dark else QColor("#28282A")
-        base.setAlpha(246 if not dark else 242)
-        p.fillPath(path, base)
-    border = QColor(0, 0, 0, 36) if not dark else QColor(255, 255, 255, 28)
+    grad = QLinearGradient(0, r.top(), 0, r.bottom())
+    if dark:
+        grad.setColorAt(0.0, QColor(46, 46, 50, 252))
+        grad.setColorAt(1.0, QColor(38, 38, 42, 252))
+    else:
+        grad.setColorAt(0.0, QColor(249, 249, 251, 253))
+        grad.setColorAt(1.0, QColor(241, 241, 245, 253))
+    p.fillPath(path, grad)
+    border = QColor(0, 0, 0, 36) if not dark else QColor(255, 255, 255, 30)
     p.setPen(border)
     p.setBrush(Qt.NoBrush)
     p.drawPath(path)

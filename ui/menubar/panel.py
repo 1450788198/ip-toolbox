@@ -7,9 +7,8 @@ Qt.Popup 无边框窗口 + 原生 NSVisualEffectView 材质（降级为自绘半
 import datetime
 import ipaddress
 
-from PySide6.QtCore import Qt, QTimer, Signal, QPropertyAnimation, QEasingCurve, QPoint
-from PySide6.QtGui import QColor
-from PySide6.QtWidgets import (QApplication, QFrame, QGraphicsOpacityEffect,
+from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtWidgets import (QApplication, QFrame,
                                QGridLayout, QHBoxLayout, QLabel, QPushButton,
                                QScrollArea, QVBoxLayout, QWidget)
 
@@ -135,7 +134,6 @@ class Panel(QWidget):
         self.setFixedWidth(PANEL_WIDTH)
         self.state = state
         self._dark = False
-        self._vibrancy = False
         self._expanded = set()          # 保持展开的网卡 key
         self._sig = None                # 上次网卡签名
         self._presets_sig = None
@@ -605,26 +603,7 @@ class Panel(QWidget):
             self.show()
             self.raise_()
             self.activateWindow()
-            if not getattr(self, "_vibrancy", False):
-                self._vibrancy = material.attach_vibrancy(self, self._dark,
-                                                          PANEL_RADIUS)
-                self.update()
-            if not material.reduce_motion():
-                self._animate_open()
-
-    def _animate_open(self):
-        eff = QGraphicsOpacityEffect(self)
-        eff.setOpacity(0.0)
-        # 只对内容做透明度渐入（窗口整体透明度在部分系统上会造成材质闪烁）
-        self.setGraphicsEffect(eff)
-        anim = QPropertyAnimation(eff, b"opacity", self)
-        anim.setDuration(130)
-        anim.setStartValue(0.0)
-        anim.setEndValue(1.0)
-        anim.setEasingCurve(QEasingCurve.OutCubic)
-        anim.finished.connect(lambda: self.setGraphicsEffect(None))
-        anim.start(QPropertyAnimation.DeleteWhenStopped)
-        self._open_anim = anim
+            self.update()
 
     def hideEvent(self, e):
         import time
@@ -637,8 +616,8 @@ class Panel(QWidget):
         super().hideEvent(e)
 
     def paintEvent(self, e):
-        material.paint_panel_background(self, self._dark, PANEL_RADIUS,
-                                        vibrancy_ok=self._vibrancy)
+        # 纯自绘底色：不依赖原生材质视图，任何环境下渲染行为确定、绝不透底
+        material.paint_panel_background(self, self._dark, PANEL_RADIUS)
 
     def toggle_at(self, global_pos):
         import time

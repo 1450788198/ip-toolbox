@@ -53,13 +53,14 @@ class DashboardPage(ScrollPage):
             return
         detail = snap.get("detail") or {}
         current = self._pick_current(ifaces)
-        d = detail.get(current.get("service") or "", {}) if current else {}
+        cd = detail.get(current.get("service") or "", {}) if current else {}
         self._fill({
             "ifaces": ifaces,
             "state": snap.get("dhcp_state") or {},
-            "dns": d.get("dns") or [],
-            "rate": d.get("link") or "",
+            "dns": cd.get("dns") or [],
+            "rate": cd.get("link") or "",
             "current": current,
+            "detail": detail,
             "history": history.load()[-5:],
             "presets": snap.get("presets") or [],
         })
@@ -129,24 +130,45 @@ class DashboardPage(ScrollPage):
         self.lbl_detail.setObjectName("hint")
         self.lbl_detail.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.card_conn.add(self.lbl_detail)
+        self.lbl_detail2 = QLabel("")
+        self.lbl_detail2.setObjectName("hint")
+        self.lbl_detail2.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.card_conn.add(self.lbl_detail2)
         left.addWidget(self.card_conn)
 
         # ---- 网卡概览 ----
-        card_list = Card("网卡概览", "按外置 / 已连接优先排序，点击行进入管理")
-        self.tbl = QTableWidget(0, 5)
-        self.tbl.setHorizontalHeaderLabels(["网络服务", "接口", "类型", "状态", "IPv4"])
+        card_list = Card("网卡概览", "按外置 / 已连接优先排序，双击行进入管理")
+        self.tbl = QTableWidget(0, 6)
+        self.tbl.setHorizontalHeaderLabels(
+            ["网络服务", "接口", "类型", "状态", "配置", "IPv4"])
         self.tbl.verticalHeader().setVisible(False)
         self.tbl.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.tbl.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.tbl.setSelectionMode(QAbstractItemView.SingleSelection)
-        self.tbl.verticalHeader().setDefaultSectionSize(32)
+        self.tbl.verticalHeader().setDefaultSectionSize(38)
         hdr = self.tbl.horizontalHeader()
         hdr.setSectionResizeMode(0, QHeaderView.Stretch)
-        for c in (1, 2, 3, 4):
+        for c in (1, 2, 3, 4, 5):
             hdr.setSectionResizeMode(c, QHeaderView.ResizeToContents)
-        self.tbl.setMinimumHeight(190)
+        self.tbl.setMinimumHeight(180)
         self.tbl.cellDoubleClicked.connect(self._row_activated)
         card_list.add(self.tbl, 1)
+        sumrow = QHBoxLayout()
+        self.lbl_net_summary = QLabel("")
+        self.lbl_net_summary.setObjectName("hint")
+        sumrow.addWidget(self.lbl_net_summary)
+        sumrow.addStretch(1)
+        btn_alias = QPushButton("附加 IP")
+        btn_alias.setProperty("variant", "ghost")
+        btn_alias.setToolTip("为当前网卡添加附加 IP（同网卡多地址）")
+        btn_alias.clicked.connect(lambda: self.navigate.emit("network"))
+        sumrow.addWidget(btn_alias)
+        btn_route = QPushButton("添加路由")
+        btn_route.setProperty("variant", "ghost")
+        btn_route.setToolTip("添加现场业务路由")
+        btn_route.clicked.connect(lambda: self.navigate.emit("routes"))
+        sumrow.addWidget(btn_route)
+        card_list.add_layout(sumrow)
         left.addWidget(card_list, 1)
 
         # ---- DHCP ----
@@ -160,7 +182,14 @@ class DashboardPage(ScrollPage):
         btn_dhcp.clicked.connect(lambda: self.navigate.emit("dhcp"))
         drow.addWidget(btn_dhcp)
         card_dhcp.add_layout(drow)
-        self.lbl_pool = QLabel("启动后可查看地址池与租约")
+        d_tiles = QHBoxLayout()
+        d_tiles.setSpacing(10)
+        self.tile_pool = StatTile("地址池", "—")
+        self.tile_leases = StatTile("已分配租约", "—")
+        d_tiles.addWidget(self.tile_pool, 1)
+        d_tiles.addWidget(self.tile_leases, 1)
+        card_dhcp.add_layout(d_tiles)
+        self.lbl_pool = QLabel("启动后可为 BMC / 新设备临时分配同网段地址")
         self.lbl_pool.setObjectName("hint")
         self.lbl_pool.setWordWrap(True)
         card_dhcp.add(self.lbl_pool)
@@ -217,8 +246,28 @@ class DashboardPage(ScrollPage):
                         rate = self.backend.link_info(current["device"])
                     except Exception:
                         rate = ""
+            # 各网卡配置方式与附加 IP（用于表格与摘要）
+            detail = {}
+            for i in ifaces:
+                svc_i = i.get("service") or ""
+                d_i = {"mode": "", "aliases": []}
+                if svc_i and hasattr(self.backend, "ip_mode"):
+                    try:
+                        d_i["mode"] = self.backend.ip_mode(svc_i)
+                    except Exception:
+                        pass
+                if hasattr(self.backend, "list_alias_ips"):
+                    try:
+                        d_i["aliases"] = self.backend.list_alias_ips(
+                            i.get("device") or "") or []
+                    except Exception:
+                        pass
+                detail[svc_i] = d_i
+            cd = detail.get(current.get("service") or "", {}) if current else {}
+            dns = dns if dns else cd.get("dns") or []
             return {"ifaces": ifaces, "state": state, "dns": dns, "rate": rate,
-                    "current": current, "history": history.load()[-5:],
+                    "current": current, "detail": detail,
+                    "history": history.load()[-5:],
                     "presets": preset_store.load_presets()}
 
         w = Worker(job)
@@ -230,18 +279,24 @@ class DashboardPage(ScrollPage):
     def _fill(self, data):
         self.ifaces = data["ifaces"]
         current = data.get("current")
-        self._fill_connection(current, data.get("dns") or [], data.get("rate") or "")
-        self._fill_table(self.ifaces)
+        detail = data.get("detail") or {}
+        cd = detail.get(current.get("service") or "", {}) if current else {}
+        self._fill_connection(current, data.get("dns") or [],
+                              data.get("rate") or "",
+                              cd.get("mode") or "", cd.get("aliases") or [])
+        self._fill_table(self.ifaces, detail)
         self._fill_dhcp(data.get("state") or {})
         self._fill_history(data.get("history") or [])
         self._fill_presets(data.get("presets") or [])
 
-    def _fill_connection(self, ifc, dns, rate):
+    def _fill_connection(self, ifc, dns, rate, mode="", aliases=None):
+        aliases = aliases or []
         if not ifc:
             self.lbl_service.setText("未检测到网卡")
             self.badge_conn.set_state("", "muted")
             self.lbl_ip.setText("—")
             self.lbl_detail.setText("")
+            self.lbl_detail2.setText("")
             for t in (self.tile_mask, self.tile_gw, self.tile_dns, self.tile_rate):
                 t.set_value("—")
             return
@@ -262,16 +317,26 @@ class DashboardPage(ScrollPage):
         self.lbl_detail.setText(
             f"接口 {ifc.get('device', '—')}　·　{kind}　·　"
             f"硬件端口 {ifc.get('port', '—')}　·　MAC {ifc.get('mac') or '—'}")
+        mode_txt = {"static": "手动配置", "dhcp": "DHCP 自动"}.get(mode, "—")
+        if aliases:
+            extra = ", ".join(aliases[:2]) + ("…" if len(aliases) > 2 else "")
+            self.lbl_detail2.setText(
+                f"配置方式 {mode_txt}　·　附加 IP {len(aliases)} 个：{extra}")
+        else:
+            self.lbl_detail2.setText(f"配置方式 {mode_txt}　·　附加 IP 无")
 
-    def _fill_table(self, ifaces):
+    def _fill_table(self, ifaces, detail=None):
+        detail = detail or {}
         self.tbl.setRowCount(0)
         for i in ifaces:
             r = self.tbl.rowCount()
             self.tbl.insertRow(r)
             status = {"up": "已连接", "down": "断开", "absent": "未插入"}.get(
                 i.get("status"), "未知")
+            d_i = detail.get(i.get("service") or "", {}) or {}
+            cfg = {"static": "手动", "dhcp": "DHCP"}.get(d_i.get("mode"), "—")
             vals = [i.get("service") or i.get("port"), i.get("device"),
-                    "USB" if iface_is_external(i) else "内置", status,
+                    "USB" if iface_is_external(i) else "内置", status, cfg,
                     i.get("ipv4") or "—"]
             for c, v in enumerate(vals):
                 it = QTableWidgetItem(str(v))
@@ -280,24 +345,39 @@ class DashboardPage(ScrollPage):
                         Qt.darkGreen if i.get("status") == "up"
                         else Qt.gray if i.get("status") == "down"
                         else Qt.darkYellow)
-                if c == 4:
+                if c == 5:
                     f = it.font()
                     f.setFamily("Menlo")
                     it.setFont(f)
                 self.tbl.setItem(r, c, it)
             self.tbl.item(r, 0).setData(Qt.UserRole, i.get("service") or i.get("port"))
+        # 底部摘要，填充卡片留白
+        up_n = sum(1 for i in ifaces if i.get("status") == "up")
+        alias_n = sum(len((detail.get(i.get("service") or "") or {}).get(
+            "aliases") or []) for i in ifaces)
+        static_n = sum(1 for i in ifaces
+                       if (detail.get(i.get("service") or "") or {}).get("mode") == "static")
+        self.lbl_net_summary.setText(
+            f"共 {len(ifaces)} 个网卡　·　已连接 {up_n}　·　"
+            f"手动配置 {static_n}　·　附加 IP {alias_n} 个")
 
     def _fill_dhcp(self, state):
         running = bool(state.get("running"))
         self.badge_dhcp.set_state("运行中" if running else "未运行", "ok" if running else "muted")
         cfg = state.get("config") or state.get("cfg") or {}
-        pool = f"{cfg.get('start')} ~ {cfg.get('end')}" if cfg.get("start") else ""
         if running:
+            pool = (f"{cfg.get('start')} ~ {cfg.get('end')}"
+                    if cfg.get("start") else "—")
             leases = state.get("leases") or {}
+            self.tile_pool.set_value(pool, tooltip=str(pool))
+            self.tile_leases.set_value(f"{len(leases)} 个")
             self.lbl_pool.setText(
-                f"{cfg.get('interface', '')}　地址池 {pool or '—'}　已分配 {len(leases)} 个")
+                f"服务运行于 {cfg.get('interface', '') or '—'}　·　"
+                f"为 BMC / 新上架设备分配同网段地址")
         else:
-            self.lbl_pool.setText("启动后可查看地址池与租约")
+            self.tile_pool.set_value("—")
+            self.tile_leases.set_value("—")
+            self.lbl_pool.setText("启动后可为 BMC / 新设备临时分配同网段地址")
 
     def _clear_layout(self, layout):
         while layout.count():

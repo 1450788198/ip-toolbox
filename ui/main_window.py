@@ -243,6 +243,29 @@ class MainWindow(QMainWindow):
             self.pages["dhcp"].set_ifaces(ifaces)
         self.pages["network"].apply_state(snap)
         self.pages["dashboard"].apply_state(snap)
+        self._update_nav_badges(snap)
+
+    def _update_nav_badges(self, snap: dict):
+        """侧边栏右端实时徽标：填满右半空间并直接给出关键状态"""
+        try:
+            ifaces = snap.get("ifaces") or []
+            up = sum(1 for i in ifaces if i.get("status") == "up")
+            total = len(ifaces)
+            routes_n = len(snap.get("routes") or [])
+            badges = {
+                "network": (f"{up}/{total}", "ok" if up else "muted"),
+                "routes": (f"{routes_n} 条", "accent" if routes_n else "muted"),
+                "dhcp": ("运行中", "ok") if snap.get("dhcp_running")
+                        else ("未运行", "muted"),
+            }
+            try:
+                from core import history as hist
+                badges["history"] = (f"{len(hist.load())} 条", "muted")
+            except Exception:
+                pass
+            self.sidebar.set_badges(badges)
+        except Exception:
+            pass
 
     def _open_settings(self):
         self._show_window()

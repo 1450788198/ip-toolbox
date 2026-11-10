@@ -61,6 +61,7 @@ class NetworkState(QObject):
             "dhcp_state": {},
             "elevation_ok": None,
             "presets": [],
+            "routes": [],           # 手工业务路由（侧边栏徽标用）
         }
 
     # ---------- 对外查询 ----------
@@ -156,6 +157,11 @@ class NetworkState(QObject):
                 except Exception:
                     pass
             detail[svc or dev] = d
+        routes = []
+        try:
+            routes = b.list_routes() or []
+        except Exception:
+            pass
         return {
             "ts": time.time(),
             "ifaces": ifaces,
@@ -164,6 +170,7 @@ class NetworkState(QObject):
             "dhcp_state": _dhcp_state(),
             "elevation_ok": _elevation_ok(),
             "presets": self._presets(),
+            "routes": routes,
         }
 
     @staticmethod

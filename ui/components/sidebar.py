@@ -1,10 +1,43 @@
-"""侧边栏导航：分组标题 + 图标条目，固定 220px"""
-from PySide6.QtCore import QSize, Qt, Signal
+"""侧边栏导航：分组标题 + 图标条目（右端实时状态徽标），固定 220px"""
+from PySide6.QtCore import QSize, Qt, QTimer, Signal
 from PySide6.QtWidgets import (QButtonGroup, QFrame, QHBoxLayout, QLabel,
                                QPushButton, QScrollArea, QVBoxLayout, QWidget)
 
 from ..icons import nav_icon
 from ..common import make_app_icon
+
+
+class NavButton(QPushButton):
+    """导航项：左图标 + 文字，右端可挂实时状态徽标（如 已连接/总数、路由条数）"""
+
+    def __init__(self, text, parent=None):
+        super().__init__(text, parent)
+        self._badge = QLabel("", self)
+        self._badge.setObjectName("navBadge")
+        self._badge.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self._badge.hide()
+
+    def set_badge(self, text: str, kind: str = "muted"):
+        if text:
+            self._badge.setText(text)
+            self._badge.setProperty("kind", kind)
+            self._badge.style().unpolish(self._badge)
+            self._badge.style().polish(self._badge)
+            self._badge.adjustSize()
+            self._badge.show()
+            # 布局可能尚未稳定（首次设置时按钮宽度未定），下一拍再定位
+            QTimer.singleShot(0, self._reposition)
+        else:
+            self._badge.hide()
+
+    def _reposition(self):
+        if self._badge.isVisible() and self.width() > 40:
+            self._badge.move(self.width() - self._badge.width() - 11,
+                             (self.height() - self._badge.height()) // 2)
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        self._reposition()
 
 
 class Sidebar(QWidget):
@@ -58,8 +91,8 @@ class Sidebar(QWidget):
         body = QWidget()
         body.setObjectName("navBody")
         v = QVBoxLayout(body)
-        v.setContentsMargins(9, 4, 9, 8)
-        v.setSpacing(2)
+        v.setContentsMargins(10, 6, 10, 10)
+        v.setSpacing(3)
 
         current_group = None
         for it in items:
@@ -68,12 +101,12 @@ class Sidebar(QWidget):
                 lb = QLabel(current_group)
                 lb.setObjectName("navGroup")
                 v.addWidget(lb)
-            btn = QPushButton(f"  {it['title']}")
+            btn = NavButton(f"  {it['title']}")
             btn.setObjectName("navItem")
             btn.setCheckable(True)
             btn.setCursor(Qt.PointingHandCursor)
-            btn.setFixedHeight(30)
-            btn.setIconSize(QSize(16, 16))
+            btn.setFixedHeight(38)
+            btn.setIconSize(QSize(18, 18))
             btn.setProperty("key", it["key"])
             btn.clicked.connect(lambda _=False, k=it["key"]: self.navigate.emit(k))
             self.group.addButton(btn)
@@ -95,9 +128,18 @@ class Sidebar(QWidget):
         for it in self._items:
             btn = self.buttons.get(it["key"])
             if btn:
-                btn.setIcon(nav_icon(it["icon"], dark=dark, size=16))
+                btn.setIcon(nav_icon(it["icon"], dark=dark, size=18))
 
     def set_current(self, key: str):
         btn = self.buttons.get(key)
         if btn:
             btn.setChecked(True)
+
+    def set_badges(self, badges: dict):
+        """badges: {key: (text, kind)}，kind ∈ muted/ok/warn/accent；text 为空则隐藏"""
+        for key, val in (badges or {}).items():
+            btn = self.buttons.get(key)
+            if not btn:
+                continue
+            text, kind = val if isinstance(val, tuple) else (val, "muted")
+            btn.set_badge(text, kind)

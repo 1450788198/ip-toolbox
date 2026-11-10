@@ -72,7 +72,7 @@ QWidget {
 QMainWindow, QDialog { background: $bg; }
 QWidget#root, QWidget#page, QScrollArea, QScrollArea > QWidget > QWidget { background: transparent; }
 QLabel { background: transparent; }
-QLabel#appName { font-size: 14px; font-weight: 600; color: $text; }
+QLabel#appName { font-size: 15px; font-weight: 700; color: $text; }
 QLabel#appSub { font-size: 11px; color: $text3; }
 QLabel#pageTitle { font-size: 22px; font-weight: 700; color: $text; }
 QLabel#pageSub { font-size: 12px; color: $text2; }
@@ -116,20 +116,33 @@ QScrollArea#navScroll { background: transparent; border: none; }
 QWidget#navBody { background: transparent; }
 QLabel#navGroup {
     color: $text3; font-size: 11px; font-weight: 600;
-    padding: 12px 12px 4px 12px; letter-spacing: 0.3px;
+    padding: 14px 12px 5px 12px; letter-spacing: 0.4px;
 }
 QPushButton#navItem {
     text-align: left;
     background: transparent;
     border: none;
-    border-radius: 7px;
-    padding: 0 10px;
+    border-radius: 8px;
+    padding: 0 12px;
     color: $text;
-    font-size: 13px;
+    font-size: 14px;
+    font-weight: 500;
 }
 QPushButton#navItem:hover { background: $hover; }
 QPushButton#navItem:checked { background: $accent; color: $on_accent; }
 QPushButton#navItem:checked:hover { background: $accent_hover; }
+
+QLabel#navBadge {
+    background: $sep_soft; color: $text2;
+    border-radius: 6px; padding: 2px 8px;
+    font-size: 11px; font-weight: 600;
+}
+QLabel#navBadge[kind="ok"] { background: $ok_soft; color: $ok; }
+QLabel#navBadge[kind="warn"] { background: $warn_soft; color: $warn; }
+QLabel#navBadge[kind="accent"] { background: $accent_soft; color: $accent; }
+QPushButton#navItem:checked QLabel#navBadge {
+    background: rgba(255,255,255,0.22); color: #FFFFFF;
+}
 
 /* ---------- 按钮 ---------- */
 QPushButton {
