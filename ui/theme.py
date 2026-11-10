@@ -14,8 +14,8 @@ LIGHT = {
     "surface2": "#FAFAFC",
     "sidebar": "#ECECF0",
     "text": "#1D1D1F",
-    "text2": "#86868B",
-    "text3": "#AEAEB2",
+    "text2": "#6E6E73",
+    "text3": "#8E8E93",
     "sep": "#D2D2D7",
     "sep_soft": "#E8E8ED",
     "accent": "#007AFF",
@@ -41,8 +41,8 @@ DARK = {
     "surface2": "#323234",
     "sidebar": "#232325",
     "text": "#F5F5F7",
-    "text2": "#98989D",
-    "text3": "#6E6E73",
+    "text2": "#A8A8AD",
+    "text3": "#8E8E93",
     "sep": "#3A3A3C",
     "sep_soft": "#333335",
     "accent": "#0A84FF",
@@ -131,18 +131,7 @@ QPushButton#navItem {
 QPushButton#navItem:hover { background: $hover; }
 QPushButton#navItem:checked { background: $accent; color: $on_accent; }
 QPushButton#navItem:checked:hover { background: $accent_hover; }
-
-QLabel#navBadge {
-    background: $sep_soft; color: $text2;
-    border-radius: 6px; padding: 2px 8px;
-    font-size: 11px; font-weight: 600;
-}
-QLabel#navBadge[kind="ok"] { background: $ok_soft; color: $ok; }
-QLabel#navBadge[kind="warn"] { background: $warn_soft; color: $warn; }
-QLabel#navBadge[kind="accent"] { background: $accent_soft; color: $accent; }
-QPushButton#navItem:checked QLabel#navBadge {
-    background: rgba(255,255,255,0.22); color: #FFFFFF;
-}
+/* 徽标样式由 NavButton 用令牌直供（按钮子控件的后代选择器规则不可靠） */
 
 /* ---------- 按钮 ---------- */
 QPushButton {

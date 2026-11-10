@@ -8,27 +8,66 @@ from ..common import make_app_icon
 
 
 class NavButton(QPushButton):
-    """导航项：左图标 + 文字，右端可挂实时状态徽标（如 已连接/总数、路由条数）"""
+    """导航项：左图标 + 文字，右端可挂实时状态徽标（如 已连接/总数、路由条数）
+
+    徽标样式用 setStyleSheet 令牌直供（全局 QSS 的按钮子控件后代选择器
+    在部分平台上不生效，曾导致白字白底），主题切换时由 refresh_badge 重刷。
+    """
 
     def __init__(self, text, parent=None):
         super().__init__(text, parent)
         self._badge = QLabel("", self)
-        self._badge.setObjectName("navBadge")
         self._badge.setAttribute(Qt.WA_TransparentForMouseEvents)
         self._badge.hide()
+        self._badge_kind = "muted"
+        self._badge_dark = False
+        self._badge_text = ""
 
     def set_badge(self, text: str, kind: str = "muted"):
+        self._badge_text = text or ""
+        self._badge_kind = kind or "muted"
         if text:
             self._badge.setText(text)
-            self._badge.setProperty("kind", kind)
-            self._badge.style().unpolish(self._badge)
-            self._badge.style().polish(self._badge)
+            self._badge.setStyleSheet(self._badge_qss())
             self._badge.adjustSize()
             self._badge.show()
             # 布局可能尚未稳定（首次设置时按钮宽度未定），下一拍再定位
             QTimer.singleShot(0, self._reposition)
         else:
             self._badge.hide()
+
+    def _badge_qss(self) -> str:
+        """按当前主题令牌生成徽标样式：深色文字配浅底，保证对比度"""
+        from ..theme import current_tokens
+        t = current_tokens()
+        dark = getattr(theme_current_mgr(), "dark", False) if theme_current_mgr() else False
+        self._badge_dark = dark
+        if dark:
+            colors = {
+                "muted": (t["hover"], t["text"]),
+                "ok": (t["ok_soft"], t["ok"]),
+                "warn": (t["warn_soft"], t["warn"]),
+                "accent": (t["accent_soft"], t["accent"]),
+            }
+        else:
+            colors = {
+                "muted": (t["sep_soft"], "#48484C"),
+                "ok": (t["ok_soft"], "#1E7A45"),
+                "warn": (t["warn_soft"], "#8F5600"),
+                "accent": (t["accent_soft"], "#0064D2"),
+            }
+        bg, fg = colors.get(self._badge_kind, colors["muted"])
+        if self.isChecked():
+            # 选中行是蓝色填充底：徽标用反白样式保证可读
+            bg, fg = "rgba(255,255,255,0.26)", "#FFFFFF"
+        return (f"QLabel {{ background: {bg}; color: {fg};"
+                f" border-radius: 6px; padding: 2px 8px;"
+                f" font-size: 11px; font-weight: 600; }}")
+
+    def refresh_badge(self, dark: bool):
+        """主题切换后重刷徽标配色（保留文字与显隐）"""
+        if self._badge.isVisible() or self._badge_text:
+            self._badge.setStyleSheet(self._badge_qss())
 
     def _reposition(self):
         if self._badge.isVisible() and self.width() > 40:
@@ -38,6 +77,11 @@ class NavButton(QPushButton):
     def resizeEvent(self, e):
         super().resizeEvent(e)
         self._reposition()
+
+
+def theme_current_mgr():
+    from .. import theme
+    return theme.current()
 
 
 class Sidebar(QWidget):
@@ -129,11 +173,17 @@ class Sidebar(QWidget):
             btn = self.buttons.get(it["key"])
             if btn:
                 btn.setIcon(nav_icon(it["icon"], dark=dark, size=18))
+                btn.refresh_badge(dark)
 
     def set_current(self, key: str):
+        prev = self.group.checkedButton()
         btn = self.buttons.get(key)
         if btn:
             btn.setChecked(True)
+        if prev is not None:
+            prev.refresh_badge(False)
+        if btn and btn is not prev:
+            btn.refresh_badge(False)
 
     def set_badges(self, badges: dict):
         """badges: {key: (text, kind)}，kind ∈ muted/ok/warn/accent；text 为空则隐藏"""
