@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# 构建产物
+build/
+build_icon/
+dist/
+*.spec.bak
+
+# 运行时数据（用户本地生成）
+dhcp-runtime/
+presets.json
+
+# macOS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
