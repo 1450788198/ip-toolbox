@@ -132,6 +132,19 @@ class MacBackend:
             return []
         return [l.strip() for l in out.splitlines() if l.strip()]
 
+    def ip_mode(self, service: str) -> str:
+        """当前 IPv4 配置方式：static（手动）/ dhcp（自动）/ 空（未知）"""
+        try:
+            info = run(["networksetup", "-getinfo", service])
+        except CmdError:
+            return ""
+        low = info.lower()
+        if "manual configuration" in low:
+            return "static"
+        if "dhcp configuration" in low or "bootp" in low:
+            return "dhcp"
+        return ""
+
     # ---------- 别名（附加 IP）----------
     def device_exists(self, device: str) -> bool:
         """接口是否真实存在于内核（USB 网卡未插时服务仍在但接口不存在）"""
@@ -209,3 +222,25 @@ class MacBackend:
             return m.group(1) if m else ""
         except CmdError:
             return ""
+
+    def link_info(self, device: str) -> str:
+        """链路速率与双工（来自 ifconfig media 行），取不到返回空串"""
+        try:
+            out = run(["ifconfig", device])
+        except CmdError:
+            return ""
+        m = re.search(r"media:\s*(.+)", out)
+        if not m:
+            return ""
+        text = m.group(1).split("\n")[0].strip()
+        speed = re.search(r"\((\d+(?:\.\d+)?(?:base\w+)?)\s*<([^>]*)>", text)
+        if speed:
+            rate, flags = speed.group(1), speed.group(2)
+            if "full-duplex" in flags:
+                return f"{rate} 全双工"
+            if "half-duplex" in flags:
+                return f"{rate} 半双工"
+            return rate
+        if "autoselect" in text:
+            return "自动协商"
+        return text[:40]
